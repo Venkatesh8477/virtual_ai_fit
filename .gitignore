@@ -1,0 +1,40 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Python environments and generated files
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Runtime data
+/backend/local_db_backup.json
+/backend/uploads/
+
+# Node.js and frontend build output
+node_modules/
+/frontend/dist/
+/frontend/.vite/
+
+# Logs and local tool output
+*.log
+*.local
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Editor and operating-system files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
