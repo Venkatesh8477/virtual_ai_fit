@@ -18,6 +18,14 @@ htmlcov/
 # Runtime data
 /backend/local_db_backup.json
 /backend/uploads/
+/tests/pose-detection/pose_detection_10_test_photos/
+/tests/pose-detection/segmentation_outputs/
+/tests/garment-extraction/inputs/
+/tests/garment-extraction/outputs/
+/tests/garment-extraction/reference_masks/
+/tests/segmentation/reference_masks/
+/tests/pose-detection/keypoint_annotations.csv
+/tests/results/
 
 # Node.js and frontend build output
 node_modules/

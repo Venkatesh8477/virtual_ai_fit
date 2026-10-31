@@ -1,267 +1,190 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { Download, Save, RefreshCw, Eye, Sparkles, Activity, Layers, ArrowLeft, CheckCircle, Share2 } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import {
+  Activity, ArrowLeft, ArrowRight, Download, Eye, Image as ImageIcon,
+  Layers, RefreshCw, Sparkles,
+} from 'lucide-react';
 
 const Result = ({ resultData }) => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('result'); // 'result', 'landmarks', 'segmented'
-  const [savedSuccess, setSavedSuccess] = useState(false);
+  const [activeView, setActiveView] = useState('result');
 
   if (!resultData) {
     return (
-      <div className="min-h-[75vh] flex flex-col items-center justify-center p-4 text-center">
-        <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 text-slate-500 mb-4">
-          <Sparkles className="w-8 h-8" />
-        </div>
-        <h2 className="text-xl font-bold text-white mb-2">No Active Try-On Result</h2>
-        <p className="text-sm text-slate-400 max-w-sm mb-6">Upload a person photo and dress image to view AI body analysis and try-on output.</p>
-        <Link
-          to="/upload"
-          className="px-6 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm shadow-lg shadow-indigo-600/30 transition-all"
-        >
-          Go to Upload Studio
-        </Link>
-      </div>
+      <main className="flex min-h-[70vh] items-center justify-center px-4 py-16">
+        <section className="app-card max-w-md p-8 text-center">
+          <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#f1e9df] text-[#722f37]"><Sparkles className="h-6 w-6" /></span>
+          <h1 className="font-editorial mt-5 text-3xl text-[#241522]">Your fitting room is ready</h1>
+          <p className="mt-3 text-sm leading-6 text-[#827a78]">Add a photo and a garment in the studio to create a try-on preview.</p>
+          <Link to="/upload" className="btn-primary mt-6">Go to the studio <ArrowRight className="h-4 w-4" /></Link>
+        </section>
+      </main>
     );
   }
 
   const {
-    person_image,
-    dress_image,
-    landmark_visualization,
-    segmented_image,
-    result_image,
-    body_analysis,
-    landmarks,
-    engine
+    person_image: personImage,
+    dress_image: dressImage,
+    landmark_visualization: landmarkImage,
+    segmented_image: segmentedImage,
+    segmentation_mask: segmentationMask,
+    segmentation_method: segmentationMethod,
+    segmentation_warning: segmentationWarning,
+    result_image: resultImage,
+    body_analysis: bodyAnalysis,
+    landmarks = [],
+    engine,
   } = resultData;
 
+  const unusableLandmarks = landmarks.filter((landmark) => landmark.usable_for_measurement === false);
+  const views = [
+    { id: 'result', label: 'Your look', icon: Sparkles },
+    { id: 'compare', label: 'Before & after', icon: Eye },
+    ...(landmarkImage ? [{ id: 'landmarks', label: 'Pose map', icon: Activity }] : []),
+    ...(segmentedImage ? [{ id: 'segmented', label: 'Person cutout', icon: ImageIcon }] : []),
+    ...(segmentationMask ? [{ id: 'mask', label: 'Mask', icon: Layers }] : []),
+  ];
+
+  const formatPixelMetric = (value) => (
+    Number.isFinite(value) ? `${value.toFixed(1)} px` : '—'
+  );
+
   const handleDownload = () => {
+    if (!resultImage) return;
     const link = document.createElement('a');
-    link.href = result_image;
-    link.download = `AI-Virtual-TryOn-Result-${Date.now()}.jpg`;
+    link.href = resultImage;
+    link.download = `Virtual-AI-Fit-Look-${Date.now()}.jpg`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
-  const handleSave = () => {
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 3000);
-  };
-
   return (
-    <div className="max-w-7xl mx-auto py-8 px-4 space-y-8">
-      
-      {/* Top Header */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 glass-panel p-6 rounded-3xl border border-slate-800">
+    <main className="fade-in mx-auto max-w-7xl px-4 pb-16 pt-8 sm:px-6 lg:px-8">
+      <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
-          <button
-            onClick={() => navigate('/upload')}
-            className="inline-flex items-center gap-2 text-xs font-semibold text-slate-400 hover:text-indigo-400 mb-2 transition-colors"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            Back to Upload Studio
+          <button onClick={() => navigate('/upload')} className="mb-3 inline-flex items-center gap-2 text-xs font-semibold text-[#827a78] hover:text-[#722f37]">
+            <ArrowLeft className="h-3.5 w-3.5" /> Back to the studio
           </button>
-          <h1 className="text-2xl lg:text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
-            Virtual Try-On Result
-            <span className="text-xs font-semibold px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
-              {engine || 'AI Engine Active'}
-            </span>
-          </h1>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#9b725b]">The fitting room</p>
+          <h1 className="font-editorial mt-1 text-4xl text-[#241522] sm:text-5xl">Your look is ready.</h1>
+          {engine && <p className="mt-2 text-xs text-[#827a78]">Created with {engine}</p>}
         </div>
-
-        {/* Action Buttons */}
-        <div className="flex items-center gap-3 w-full md:w-auto">
-          <button
-            onClick={handleDownload}
-            className="flex-1 md:flex-none px-5 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 transition-all hover:scale-105"
-          >
-            <Download className="w-4 h-4" />
-            Download Result
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={handleDownload} disabled={!resultImage} className="btn-secondary flex-1 sm:flex-none disabled:cursor-not-allowed disabled:opacity-50">
+            <Download className="h-4 w-4" /> Download
           </button>
-          
-          <button
-            onClick={handleSave}
-            className="px-5 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs flex items-center justify-center gap-2 border border-slate-800 transition-colors"
-          >
-            {savedSuccess ? (
-              <>
-                <CheckCircle className="w-4 h-4 text-emerald-400" />
-                <span className="text-emerald-400">Saved</span>
-              </>
-            ) : (
-              <>
-                <Save className="w-4 h-4 text-slate-400" />
-                <span>Save Record</span>
-              </>
-            )}
-          </button>
-
-          <Link
-            to="/upload"
-            className="px-5 py-3 rounded-2xl bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 font-semibold text-xs flex items-center justify-center gap-2 border border-purple-500/30 transition-colors"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Try Another Dress
-          </Link>
+          <Link to="/upload" className="btn-primary flex-1 sm:flex-none"><RefreshCw className="h-4 w-4" /> Try another look</Link>
         </div>
       </div>
 
-      {/* Main Grid: Inputs vs AI Output */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
-        {/* Left Column (5 Cols): Inputs & Proportions */}
-        <div className="lg:col-span-5 space-y-6">
-          
-          {/* Source Images (Original + Dress) */}
-          <div className="glass-panel p-5 rounded-3xl space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-              <Layers className="w-4 h-4 text-indigo-400" />
-              Source Input Media
-            </h3>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-slate-950 p-2.5 rounded-2xl border border-slate-800/80">
-                <span className="block text-[11px] font-semibold text-slate-400 mb-2 text-center">Original Person</span>
-                <div className="h-44 flex items-center justify-center overflow-hidden rounded-xl bg-slate-900/50">
-                  <img src={person_image} alt="Original person" className="max-h-full max-w-full object-contain rounded-xl" />
-                </div>
-              </div>
-
-              <div className="bg-slate-950 p-2.5 rounded-2xl border border-slate-800/80">
-                <span className="block text-[11px] font-semibold text-slate-400 mb-2 text-center">Selected Dress</span>
-                <div className="h-44 flex items-center justify-center overflow-hidden rounded-xl bg-slate-900/50">
-                  <img src={dress_image} alt="Selected dress" className="max-h-full max-w-full object-contain rounded-xl" />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Module 3: MediaPipe Body Measurements & Proportions */}
-          <div className="glass-panel p-6 rounded-3xl space-y-4 border border-indigo-500/20">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-300 flex items-center gap-2">
-                <Activity className="w-4 h-4 text-indigo-400" />
-                MediaPipe Body Analysis
-              </h3>
-              <span className="text-[10px] font-semibold px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300">
-                {body_analysis?.body_type_shape || 'Hourglass'} Shape
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <div className="bg-slate-950/70 p-3 rounded-2xl border border-slate-800">
-                <span className="block text-[10px] text-slate-400">Shoulder Width</span>
-                <span className="text-base font-bold text-white">{body_analysis?.shoulder_width_cm || 42} <span className="text-xs font-normal text-slate-500">cm</span></span>
-              </div>
-
-              <div className="bg-slate-950/70 p-3 rounded-2xl border border-slate-800">
-                <span className="block text-[10px] text-slate-400">Waist Width</span>
-                <span className="text-base font-bold text-white">{body_analysis?.waist_width_cm || 32} <span className="text-xs font-normal text-slate-500">cm</span></span>
-              </div>
-
-              <div className="bg-slate-950/70 p-3 rounded-2xl border border-slate-800">
-                <span className="block text-[10px] text-slate-400">Hip Width</span>
-                <span className="text-base font-bold text-white">{body_analysis?.hip_width_cm || 40} <span className="text-xs font-normal text-slate-500">cm</span></span>
-              </div>
-
-              <div className="bg-slate-950/70 p-3 rounded-2xl border border-slate-800">
-                <span className="block text-[10px] text-slate-400">Arm Length</span>
-                <span className="text-base font-bold text-white">{body_analysis?.arm_length_cm || 60} <span className="text-xs font-normal text-slate-500">cm</span></span>
-              </div>
-
-              <div className="bg-slate-950/70 p-3 rounded-2xl border border-slate-800">
-                <span className="block text-[10px] text-slate-400">Leg Length</span>
-                <span className="text-base font-bold text-white">{body_analysis?.leg_length_cm || 85} <span className="text-xs font-normal text-slate-500">cm</span></span>
-              </div>
-
-              <div className="bg-slate-950/70 p-3 rounded-2xl border border-slate-800">
-                <span className="block text-[10px] text-slate-400">Torso-Leg Ratio</span>
-                <span className="text-base font-bold text-indigo-400">{body_analysis?.body_ratio || 0.72}</span>
-              </div>
-            </div>
-          </div>
-
-        </div>
-
-        {/* Right Column (7 Cols): View Tabs (Result / MediaPipe Landmarks / Background Segmented) */}
-        <div className="lg:col-span-7 glass-panel p-6 rounded-3xl space-y-6">
-          
-          {/* Tab Selection */}
-          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-            <div className="flex items-center gap-2">
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_310px]">
+        <section className="app-card min-w-0 overflow-hidden">
+          <div className="flex gap-1 overflow-x-auto border-b border-[#eee7df] p-3 sm:p-4">
+            {views.map(({ id, label, icon: Icon }) => (
               <button
-                onClick={() => setActiveTab('result')}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                  activeTab === 'result'
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
-                    : 'text-slate-400 hover:text-white bg-slate-900/50'
-                }`}
+                key={id}
+                type="button"
+                onClick={() => setActiveView(id)}
+                aria-pressed={activeView === id}
+                className={`inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold transition-colors ${activeView === id ? 'bg-[#722f37] text-white' : 'text-[#827a78] hover:bg-[#f1e9df] hover:text-[#722f37]'}`}
               >
-                Final AI Try-On
+                <Icon className="h-3.5 w-3.5" /> {label}
               </button>
-
-              <button
-                onClick={() => setActiveTab('landmarks')}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                  activeTab === 'landmarks'
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
-                    : 'text-slate-400 hover:text-white bg-slate-900/50'
-                }`}
-              >
-                MediaPipe Pose Keypoints
-              </button>
-
-              <button
-                onClick={() => setActiveTab('segmented')}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                  activeTab === 'segmented'
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
-                    : 'text-slate-400 hover:text-white bg-slate-900/50'
-                }`}
-              >
-                Background Removed
-              </button>
-            </div>
+            ))}
           </div>
-
-          {/* Active Canvas Display */}
-          <div className="relative min-h-[500px] bg-slate-950/80 rounded-2xl border border-slate-800 flex items-center justify-center p-4 overflow-hidden group">
-            {activeTab === 'result' && (
-              <img
-                src={result_image}
-                alt="Final AI Try-On"
-                className="max-h-[580px] max-w-full object-contain rounded-xl shadow-2xl transition-transform duration-500 group-hover:scale-105"
-              />
-            )}
-
-            {activeTab === 'landmarks' && (
-              <img
-                src={landmark_visualization}
-                alt="MediaPipe Pose Landmarks"
-                className="max-h-[580px] max-w-full object-contain rounded-xl shadow-2xl"
-              />
-            )}
-
-            {activeTab === 'segmented' && (
-              <div className="w-full h-full flex flex-col items-center justify-center">
-                {/* Transparency checkerboard background effect */}
-                <div className="p-4 rounded-xl bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px]">
-                  <img
-                    src={segmented_image}
-                    alt="Segmented Foreground Person"
-                    className="max-h-[550px] max-w-full object-contain drop-shadow-2xl"
-                  />
+          {activeView === 'compare' ? (
+            <div className="grid min-h-[480px] grid-cols-2 gap-px bg-[#e5ddd3] p-px sm:min-h-[600px]">
+              {[
+                ['Before', personImage],
+                ['Your look', resultImage],
+              ].map(([label, image]) => (
+                <div key={label} className="flex min-w-0 flex-col bg-[#f7f3ef] p-3 sm:p-5">
+                  <span className="mb-3 text-xs font-semibold text-[#827a78]">{label}</span>
+                  <div className="flex flex-1 items-center justify-center overflow-hidden rounded-xl bg-white p-2 sm:p-4">
+                    {image ? <img src={image} alt={label} className="max-h-[560px] max-w-full object-contain" /> : <span className="text-xs text-[#827a78]">Image unavailable</span>}
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className={`flex min-h-[480px] items-center justify-center p-4 sm:min-h-[600px] sm:p-8 ${activeView === 'segmented' ? 'bg-[linear-gradient(45deg,#f1e9df_25%,transparent_25%,transparent_75%,#f1e9df_75%),linear-gradient(45deg,#f1e9df_25%,#fff_25%,#fff_75%,#f1e9df_75%)] [background-position:0_0,10px_10px] [background-size:20px_20px]' : 'bg-[#f5f0e9]'}`}>
+              {activeView === 'result' && (resultImage
+                ? <img src={resultImage} alt="Your virtual try-on result" className="max-h-[680px] max-w-full rounded-lg object-contain" />
+                : <span className="text-sm text-[#827a78]">Try-on result image unavailable.</span>)}
+              {activeView === 'landmarks' && (
+                <img src={landmarkImage} alt="Pose landmark visualization" className="max-h-[680px] max-w-full rounded-lg object-contain" />
+              )}
+              {activeView === 'segmented' && (
+                <img src={segmentedImage} alt="Person cutout with background removed" className="max-h-[680px] max-w-full object-contain" />
+              )}
+              {activeView === 'mask' && (
+                <img src={segmentationMask} alt="Grayscale person segmentation mask" className="max-h-[680px] max-w-full object-contain" />
+              )}
+            </div>
+          )}
+          {(segmentationMethod || segmentationWarning) && (
+            <div className="border-t border-[#eee7df] px-4 py-3 text-xs text-[#827a78] sm:px-5">
+              {segmentationMethod && <p>Segmentation method: <span className="font-medium text-[#35313a]">{segmentationMethod}</span></p>}
+              {segmentationWarning && <p role="status" className="mt-1 text-amber-800">Segmentation note: {segmentationWarning}</p>}
+            </div>
+          )}
+        </section>
 
-        </div>
+        <aside className="space-y-4">
+          <section className="app-card p-4">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-[#35313a]"><Layers className="h-4 w-4 text-[#c6a46a]" /> The pieces</h2>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              {[
+                ['Your photo', personImage],
+                ['Selected garment', dressImage],
+              ].map(([label, image]) => (
+                <div key={label}>
+                  <div className="flex h-36 items-center justify-center overflow-hidden rounded-xl bg-[#f5f0e9] p-2">
+                    {image ? <img src={image} alt={label} className="max-h-full max-w-full object-contain" /> : <ImageIcon className="h-5 w-5 text-[#b4a9a2]" />}
+                  </div>
+                  <p className="mt-2 truncate text-[11px] font-medium text-[#827a78]">{label}</p>
+                </div>
+              ))}
+            </div>
+          </section>
 
+          <details className="app-card group">
+            <summary className="flex cursor-pointer list-none items-center justify-between p-4">
+              <span className="flex items-center gap-2 text-sm font-semibold text-[#35313a]"><Activity className="h-4 w-4 text-[#c6a46a]" /> Fit analysis</span>
+              <span className="text-xs text-[#827a78] group-open:rotate-180">⌄</span>
+            </summary>
+            <div className="border-t border-[#eee7df] px-4 pb-4 pt-3">
+              <p className="mb-3 text-xs text-[#827a78]">
+                {bodyAnalysis?.body_type_shape ? `${bodyAnalysis.body_type_shape} shape estimate` : 'Body shape estimate unavailable'}
+              </p>
+              <dl className="grid grid-cols-2 gap-2">
+                {[
+                  ['Shoulder', bodyAnalysis?.shoulder_width_px],
+                  ['Waist', bodyAnalysis?.waist_width_px],
+                  ['Hip', bodyAnalysis?.hip_width_px],
+                  ['Arm length', bodyAnalysis?.arm_length_px],
+                  ['Leg length', bodyAnalysis?.leg_length_px],
+                  ['Torso / leg', bodyAnalysis?.body_ratio],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-lg bg-[#faf7f2] p-2.5">
+                    <dt className="text-[10px] text-[#827a78]">{label}</dt>
+                    <dd className="mt-1 text-xs font-semibold text-[#35313a]">{label === 'Torso / leg' ? value ?? '—' : formatPixelMetric(value)}</dd>
+                  </div>
+                ))}
+              </dl>
+              <p className="mt-3 text-[10px] leading-4 text-[#827a78]">Distances are image-space pixels, not calibrated body measurements.</p>
+              {unusableLandmarks.length > 0 && (
+                <p className="mt-2 text-[10px] leading-4 text-amber-800">
+                  {unusableLandmarks.length} landmarks may be unreliable: {unusableLandmarks.map((landmark) => landmark.name).join(', ')}.
+                </p>
+              )}
+            </div>
+          </details>
+
+        </aside>
       </div>
-    </div>
+    </main>
   );
 };
 

@@ -17,29 +17,28 @@ An end-to-end AI-powered Virtual Try-On web application built with **React**, **
 
 ### Module 3: Body Analysis Engine (MediaPipe Pose)
 - Detects 33 anatomical keypoints: Head, Neck, Shoulders, Elbows, Wrists, Chest, Waist, Hips, Knees, and Ankles.
-- Real-time estimation of body measurements:
-  - **Shoulder width** (cm & px)
-  - **Waist width** (cm & px)
-  - **Hip width** (cm & px)
-  - **Arm length** (cm & px)
-  - **Leg length** (cm & px)
-  - **Body ratio** (Torso-to-leg proportion)
-  - **Body Type Shape Classification** (Hourglass, Inverted Triangle, Rectangle)
+- Image-space body estimates from visible MediaPipe landmarks:
+  - Shoulder, interpolated waist-line, hip, arm, and leg distances (pixels only)
+  - Torso-to-leg ratio and a heuristic silhouette-shape estimate
+  - Unusable landmarks are flagged when visibility is low or coordinates fall outside the image
+- Pixel distances are not real-world body measurements; centimetre estimates require camera calibration or a known-size reference.
 - Renders interactive landmark visualization canvas.
 
 ### Module 4: Body Segmentation (MediaPipe Selfie Segmentation)
-- Foreground person extraction and background removal.
-- Returns clean transparent PNG background-removed subject.
+- Uses the pretrained MediaPipe Selfie Segmentation model to create a soft-alpha RGBA PNG and a grayscale mask preview.
+- Reports when the OpenCV GrabCut or center-ellipse fallback was used; segmentation is best-effort and can miss thin limbs or include overlapping background objects.
 
 ### Module 5: Virtual Try-On Pipeline (IDM-VTON & Google Colab)
 - Google Colab Jupyter Notebook setup (`colab/VirtualTryOn.ipynb`) for GPU-accelerated IDM-VTON / CatVTON neural rendering with `pyngrok` public tunnel API export.
 - FastAPI backend Colab connector with automatic pose-aligned composite fallback mode when Colab GPU is offline.
+- The local composite uses OpenCV GrabCut with a centered rectangle to extract a tightly cropped transparent garment. It works best when one garment is centered; complex backgrounds can leave attached items such as hangers.
 
 ### Module 6: Result & Inspection Page
 - Multi-tab view:
   - **Original Person Photo** & **Selected Dress**
   - **MediaPipe Pose Landmarks Overlay & Keypoint Inspector**
   - **MediaPipe Selfie Background Removed Foreground**
+  - **Person segmentation mask preview and segmentation method/fallback status**
   - **Final AI Try-On Image**
 - Instant High-Resolution **Download**, **Save to History**, and **Try Another Dress** actions.
 
@@ -85,27 +84,60 @@ AI-Virtual-TryOn/
 
 ## 🚀 Quick Start (Local Setup)
 
-### 1. Backend Setup (FastAPI)
-```bash
-cd backend
-python -m venv venv
-# On Windows:
-venv\Scripts\activate
-# On Linux/macOS:
-source venv/bin/activate
+### 1. Backend Setup (Python 3.11 + FastAPI)
+From the project root, create and activate the virtual environment and install the backend dependencies:
 
-pip install -r requirements.txt
-python main.py
+**Windows (PowerShell):**
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r backend\requirements.txt
+cd backend
+python -m uvicorn main:app --reload
+```
+
+**Linux/macOS:**
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r backend/requirements.txt
+cd backend
+python -m uvicorn main:app --reload
 ```
 > FastAPI backend runs on **http://localhost:8000** (Swagger API docs at `http://localhost:8000/docs`).
 
 ### 2. Frontend Setup (React + Vite)
+In a second terminal:
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 > React frontend runs on **http://localhost:5173**.
+
+### 3. Run the component evaluation
+From the project root, run:
+
+```powershell
+Push-Location backend
+..\.venv\Scripts\python.exe -m tests.evaluate
+Pop-Location
+```
+
+The script evaluates the existing pose photos, reuses them for segmentation, and evaluates the garment photos. Pose categories and person-presence labels come from the visually reviewed `tests/pose-detection/pose_labels.csv` manifest, not filenames; the evaluator rejects missing or extra manifest entries. It appends per-image timings, detection/label agreement, required-landmark coordinates and visibility, mask validity, extraction method, failures, and optional IoU, Dice, precision, and recall to `tests/results/evaluation_results.csv`. Empty-scene segmentation false-foreground pixel counts and fractions are reported separately from mask accuracy. Reference masks must be independently annotated, same-sized PNGs with exact pixel values `0` and `255`; place them under `tests/segmentation/reference_masks/` or `tests/garment-extraction/reference_masks/` using matching image basenames. Only the two verified no-person segmentation references are generated automatically as all-black masks; all positive-person and garment boundaries require human annotation and review. Metrics remain blank until a matching reference exists. Test photos, reference masks, and generated results are ignored by Git.
+
+### Create local reference annotations
+Use the OpenCV-based local annotator; it does not upload images or create predictions as labels:
+
+```powershell
+.\.venv\Scripts\python.exe tools\annotate_references.py person
+.\.venv\Scripts\python.exe tools\annotate_references.py garment
+.\.venv\Scripts\python.exe tools\annotate_references.py keypoints
+```
+
+For masks, left-click polygon vertices and right-click to close each polygon. Press **B** to switch white/black for islands or holes, **U** to undo, **R** to clear, **S** to save, **N** to skip, and **Q** to quit. The two visually verified empty-scene person masks are safely created as all-black PNGs; the other person masks and all garment masks require drawing and review. Keypoints are clicked in order: nose, subject-left/right shoulder, subject-left/right hip; press **N** when a point is unavailable. Coordinates are source-image pixels in `tests/pose-detection/keypoint_annotations.csv`. Existing annotations are not overwritten. The evaluator calculates PCK@0.2 (normalized by the reference keypoint bounding-box diagonal) only after a complete, valid keypoint CSV is present.
+
+The Phase 3.1 baseline summary, including current results and unmeasured metrics, is documented in [PHASE3_BASELINE.md](./PHASE3_BASELINE.md).
 
 ---
 

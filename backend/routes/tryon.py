@@ -8,7 +8,11 @@ from io import BytesIO
 from typing import Optional
 from PIL import Image, ImageOps, ImageFilter
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
-from mediapipe_engine.pose_detector import analyze_body_pose
+from mediapipe_engine.pose_detector import (
+    PoseDetectorUnavailableError,
+    analyze_body_pose,
+    landmark_is_usable
+)
 from mediapipe_engine.segmentor import segment_person_background
 from database import DatabaseManager
 from utils.auth import get_optional_user_id
@@ -16,20 +20,39 @@ from utils.auth import get_optional_user_id
 router = APIRouter(prefix="/api/tryon", tags=["Virtual Try-On"])
 
 COLAB_TRYON_URL = os.getenv("COLAB_TRYON_URL", "")
+FIT_REQUIRED_LANDMARKS = (0, 11, 12, 23, 24)
+
+
+def analyze_pose_or_raise(person_bytes: bytes):
+    try:
+        return analyze_body_pose(person_bytes)
+    except ValueError as err:
+        raise HTTPException(status_code=422, detail=str(err)) from err
+    except PoseDetectorUnavailableError as err:
+        raise HTTPException(status_code=503, detail=str(err)) from err
+
 
 @router.post("/analyze")
 async def analyze_person(person_image: UploadFile = File(...)):
     """Analyzes full body photo: detects MediaPipe landmarks & performs background segmentation."""
     person_bytes = await person_image.read()
     
-    pose_results = analyze_body_pose(person_bytes)
+    pose_results = analyze_pose_or_raise(person_bytes)
     seg_results = segment_person_background(person_bytes)
     
     return {
+        "detection_status": pose_results["detection_status"],
+        "detection_reason": pose_results["detection_reason"],
+        "pose_source": pose_results["pose_source"],
+        "visibility_threshold": pose_results["visibility_threshold"],
         "landmarks": pose_results["landmarks"],
         "metrics": pose_results["metrics"],
         "landmark_visualization": pose_results["landmark_visualization"],
-        "segmented_image": seg_results["segmented_data_url"]
+        "segmented_image": seg_results["segmented_data_url"],
+        "segmentation_mask": seg_results["mask_data_url"],
+        "segmentation_method": seg_results["segmentation_method"],
+        "segmentation_warning": seg_results["segmentation_warning"],
+        "foreground_fraction": seg_results["foreground_fraction"]
     }
 
 @router.post("/generate")
@@ -49,7 +72,21 @@ async def generate_virtual_tryon(
     dress_bytes = await dress_image.read()
 
     # Step 1: MediaPipe Pose Analysis
-    pose_results = analyze_body_pose(person_bytes)
+    pose_results = analyze_pose_or_raise(person_bytes)
+    if pose_results["detection_status"] != "detected":
+        raise HTTPException(status_code=422, detail=pose_results["detection_reason"])
+
+    unusable_landmarks = [
+        pose_results["landmarks_dict"].get(landmark_id, {}).get("name", str(landmark_id))
+        for landmark_id in FIT_REQUIRED_LANDMARKS
+        if not landmark_is_usable(pose_results["landmarks_dict"].get(landmark_id))
+    ]
+    if unusable_landmarks:
+        names = ", ".join(unusable_landmarks)
+        raise HTTPException(
+            status_code=422,
+            detail=f"Cannot fit garment; required pose landmarks are low-confidence or outside the image: {names}."
+        )
     
     # Step 2: Background Removal
     seg_results = segment_person_background(person_bytes)
@@ -86,7 +123,12 @@ async def generate_virtual_tryon(
 
     # Step 4: Pose-Aligned Garment Extraction & Warping Engine if Colab is offline/not provided
     if not tryon_result_data_url:
-        tryon_result_data_url = generate_pose_aligned_tryon(person_bytes, dress_bytes, pose_results["landmarks_dict"])
+        try:
+            tryon_result_data_url = generate_pose_aligned_tryon(
+                person_bytes, dress_bytes, pose_results["landmarks_dict"]
+            )
+        except ValueError as err:
+            raise HTTPException(status_code=422, detail=str(err)) from err
 
     # Step 5: Save to Database History if user is logged in
     history_record = None
@@ -105,74 +147,70 @@ async def generate_virtual_tryon(
 
     return {
         "status": "success",
+        "detection_status": pose_results["detection_status"],
+        "pose_source": pose_results["pose_source"],
+        "visibility_threshold": pose_results["visibility_threshold"],
         "engine": engine_used,
         "person_image": person_data_url,
         "dress_image": dress_data_url,
         "landmark_visualization": pose_results["landmark_visualization"],
         "segmented_image": seg_results["segmented_data_url"],
+        "segmentation_mask": seg_results["mask_data_url"],
+        "segmentation_method": seg_results["segmentation_method"],
+        "segmentation_warning": seg_results["segmentation_warning"],
+        "foreground_fraction": seg_results["foreground_fraction"],
         "result_image": tryon_result_data_url,
         "body_analysis": pose_results["metrics"],
         "landmarks": pose_results["landmarks"],
         "history_id": history_record["id"] if history_record else None
     }
 
-def extract_garment_foreground(dress_bytes: bytes) -> Image.Image:
-    """
-    Strips background from the dress image using saliency/GrabCut thresholding,
-    returning a clean transparent PNG image of the clothing item.
-    """
-    nparr = np.frombuffer(dress_bytes, np.uint8)
-    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+def extract_garment_mask(dress_bytes: bytes) -> np.ndarray:
+    """Return a full-size binary foreground mask for a centered garment."""
+    img = cv2.imdecode(np.frombuffer(dress_bytes, np.uint8), cv2.IMREAD_COLOR)
     if img is None:
-        return Image.open(BytesIO(dress_bytes)).convert("RGBA")
+        raise ValueError("Failed to decode garment image.")
 
-    h, w, _ = img.shape
+    height, width = img.shape[:2]
+    if min(height, width) < 3:
+        raise ValueError("Garment image must be at least 3 pixels wide and high.")
 
-    # Color thresholding & contour extraction to separate dress item from background
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    margin_x, margin_y = max(1, int(width * 0.05)), max(1, int(height * 0.05))
+    rect = (margin_x, margin_y, width - 2 * margin_x, height - 2 * margin_y)
+    mask = np.zeros((height, width), np.uint8)
+    background_model = np.zeros((1, 65), np.float64)
+    foreground_model = np.zeros((1, 65), np.float64)
+    try:
+        cv2.grabCut(
+            img, mask, rect, background_model, foreground_model, 5, cv2.GC_INIT_WITH_RECT
+        )
+    except cv2.error as err:
+        raise ValueError(f"OpenCV garment extraction failed: {err}") from err
 
-    # Detect corner background colors
-    corner_samples = np.vstack([
-        img[0:15, 0:15].reshape(-1, 3),
-        img[0:15, w-15:w].reshape(-1, 3),
-        img[h-15:h, 0:15].reshape(-1, 3),
-        img[h-15:h, w-15:w].reshape(-1, 3)
-    ])
-    bg_color = np.median(corner_samples, axis=0)
+    foreground = np.where(
+        (mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD), 255, 0
+    ).astype(np.uint8)
+    if cv2.findNonZero(foreground) is None:
+        raise ValueError("Garment extraction produced an empty foreground mask.")
 
-    # Distance map from background color
-    diff = np.linalg.norm(img.astype(np.float32) - bg_color.astype(np.float32), axis=2)
-    mask = np.where(diff > 35, 255, 0).astype(np.uint8)
+    return foreground
 
-    # Morphological clean up
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
 
-    # Find main garment contour
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if contours:
-        main_contour = max(contours, key=cv2.contourArea)
-        clean_mask = np.zeros((h, w), np.uint8)
-        cv2.drawContours(clean_mask, [main_contour], -1, 255, -1)
-        mask = clean_mask
+def extract_garment_foreground(dress_bytes: bytes) -> Image.Image:
+    """Extract the centered garment with GrabCut as a tightly cropped RGBA image."""
+    img = cv2.imdecode(np.frombuffer(dress_bytes, np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        raise ValueError("Failed to decode garment image.")
 
-    # Edge feathering for natural alpha blending
-    alpha_mask = cv2.GaussianBlur(mask, (7, 7), 0)
-
-    b, g, r = cv2.split(img)
-    rgba = cv2.merge((b, g, r, alpha_mask))
-    
-    # Crop tightly to garment bounding box
-    coords = cv2.findNonZero(mask)
-    if coords is not None:
-        x, y, bw, bh = cv2.boundingRect(coords)
-        rgba = rgba[y:y+bh, x:x+bw]
-
-    # Convert to PIL Image
-    rgba_rgb = cv2.cvtColor(rgba, cv2.COLOR_BGRA2RGBA)
-    return Image.fromarray(rgba_rgb)
+    foreground = extract_garment_mask(dress_bytes)
+    coords = cv2.findNonZero(foreground)
+    if coords is None:  # Guard against a future mask implementation returning an empty result.
+        raise ValueError("Garment extraction produced an empty foreground mask.")
+    x, y, crop_width, crop_height = cv2.boundingRect(coords)
+    alpha = cv2.GaussianBlur(foreground, (3, 3), 0)[y:y + crop_height, x:x + crop_width]
+    rgba = cv2.cvtColor(img[y:y + crop_height, x:x + crop_width], cv2.COLOR_BGR2RGBA)
+    rgba[:, :, 3] = alpha
+    return Image.fromarray(rgba)
 
 def generate_pose_aligned_tryon(person_bytes: bytes, dress_bytes: bytes, landmarks_dict: dict) -> str:
     """
@@ -186,11 +224,7 @@ def generate_pose_aligned_tryon(person_bytes: bytes, dress_bytes: bytes, landmar
     pw, ph = person_pil.size
 
     # Step 1: Extract background-free transparent garment
-    try:
-        dress_garment = extract_garment_foreground(dress_bytes)
-    except Exception as e:
-        print(f"[Try-On Engine] Garment extraction warning: {e}")
-        dress_garment = Image.open(BytesIO(dress_bytes)).convert("RGBA")
+    dress_garment = extract_garment_foreground(dress_bytes)
 
     gw, gh = dress_garment.size
 

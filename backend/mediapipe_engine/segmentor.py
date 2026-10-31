@@ -1,90 +1,131 @@
-import cv2
-import numpy as np
 import base64
 
+import cv2
+import numpy as np
+
+SEGMENTATION_THRESHOLD = 0.4
+MASK_BLUR_KERNEL = 5
+
+selfie_segmentation = None
 try:
-    import mediapipe as mp
-    mp_selfie_segmentation = mp.solutions.selfie_segmentation
+    from mediapipe.python.solutions import selfie_segmentation
+
     HAS_MEDIAPIPE_SEGMENTATION = True
-except Exception as e:
-    print(f"[Segmentation Engine] MediaPipe Selfie Segmentation warning: {e}. Fallback active.")
+    MEDIAPIPE_SEGMENTATION_IMPORT_ERROR = None
+except Exception as err:
+    MEDIAPIPE_SEGMENTATION_IMPORT_ERROR = str(err)
     HAS_MEDIAPIPE_SEGMENTATION = False
+    print(f"[Segmentation Engine] MediaPipe Selfie Segmentation unavailable: {err}")
+
 
 def segment_person_background(image_bytes: bytes) -> dict:
     """
-    Removes background using MediaPipe Selfie Segmentation model.
-    Returns transparent PNG image bytes and Base64 Data URL.
+    Return an RGBA PNG and its grayscale alpha mask, preserving the input dimensions.
+    The mask uses MediaPipe's foreground probability threshold when available.
     """
-    nparr = np.frombuffer(image_bytes, np.uint8)
-    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    
+    img = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
     if img is None:
         raise ValueError("Failed to decode image for background removal.")
 
-    h, w, _ = img.shape
+    height, width, _ = img.shape
     segmented_rgba = None
-    mask = None
+    segmentation_method = None
+    fallback_reason = None
 
-    if HAS_MEDIAPIPE_SEGMENTATION:
+    if HAS_MEDIAPIPE_SEGMENTATION and selfie_segmentation is not None:
         try:
-            with mp_selfie_segmentation.SelfieSegmentation(model_selection=0) as segmentor:
-                rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                results = segmentor.process(rgb_img)
-                
-                # Segmentation mask (probability map between 0 and 1)
-                condition = results.segmentation_mask > 0.4
-                
-                # Create BGRA image (with alpha channel)
-                b_channel, g_channel, r_channel = cv2.split(img)
-                alpha_channel = np.where(condition, 255, 0).astype(np.uint8)
-                
-                # Smooth mask edges with Gaussian blur for clean anti-aliasing
-                alpha_channel = cv2.GaussianBlur(alpha_channel, (5, 5), 0)
-                
-                segmented_rgba = cv2.merge((b_channel, g_channel, r_channel, alpha_channel))
-                mask = results.segmentation_mask
+            with selfie_segmentation.SelfieSegmentation(model_selection=0) as model:
+                rgb_image = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                results = model.process(rgb_image)
+                probability_mask = np.asarray(
+                    getattr(results, "segmentation_mask", None), dtype=np.float32
+                )
+
+                if probability_mask.shape != (height, width):
+                    raise ValueError("MediaPipe returned a mask with unexpected dimensions.")
+                if not np.isfinite(probability_mask).all():
+                    raise ValueError("MediaPipe returned a mask with non-finite values.")
+                if np.any(probability_mask < 0) or np.any(probability_mask > 1):
+                    raise ValueError("MediaPipe returned probabilities outside the [0, 1] range.")
+
+                alpha = np.where(
+                    probability_mask > SEGMENTATION_THRESHOLD, 255, 0
+                ).astype(np.uint8)
+                alpha = cv2.GaussianBlur(alpha, (MASK_BLUR_KERNEL, MASK_BLUR_KERNEL), 0)
+                blue, green, red = cv2.split(img)
+                segmented_rgba = cv2.merge((blue, green, red, alpha))
+                segmentation_method = "mediapipe_selfie_segmentation"
         except Exception as err:
-            print(f"[Segmentation Engine] MediaPipe exception: {err}")
-            segmented_rgba = None
+            fallback_reason = f"MediaPipe Selfie Segmentation failed: {err}"
+            print(f"[Segmentation Engine] {fallback_reason}; using OpenCV fallback.")
+    else:
+        fallback_reason = (
+            MEDIAPIPE_SEGMENTATION_IMPORT_ERROR
+            or "MediaPipe Selfie Segmentation is unavailable."
+        )
+        print(f"[Segmentation Engine] {fallback_reason}; using OpenCV fallback.")
 
-    # Fallback OpenCV segmentation if MediaPipe isn't available or fails
     if segmented_rgba is None:
-        segmented_rgba = generate_fallback_segmentation(img)
+        segmented_rgba, segmentation_method = generate_fallback_segmentation(img)
 
-    # Encode transparent RGBA image to PNG
-    _, buffer = cv2.imencode('.png', segmented_rgba)
-    segmented_png_bytes = buffer.tobytes()
-    segmented_b64 = base64.b64encode(segmented_png_bytes).decode('utf-8')
-    data_url = f"data:image/png;base64,{segmented_b64}"
+    if segmented_rgba.shape != (height, width, 4):
+        raise RuntimeError("Segmentation output must be an RGBA image matching the input dimensions.")
 
+    encoded, png_buffer = cv2.imencode(".png", segmented_rgba)
+    if not encoded:
+        raise RuntimeError("Could not encode the segmented image.")
+
+    alpha = segmented_rgba[:, :, 3]
+    mask_encoded, mask_buffer = cv2.imencode(".png", alpha)
+    if not mask_encoded:
+        raise RuntimeError("Could not encode the segmentation mask.")
+
+    segmented_png = png_buffer.tobytes()
+    mask_png = mask_buffer.tobytes()
     return {
-        "segmented_bytes": segmented_png_bytes,
-        "segmented_data_url": data_url,
-        "width": w,
-        "height": h
+        "segmented_bytes": segmented_png,
+        "segmented_data_url": f"data:image/png;base64,{base64.b64encode(segmented_png).decode('utf-8')}",
+        "mask_data_url": f"data:image/png;base64,{base64.b64encode(mask_png).decode('utf-8')}",
+        "segmentation_method": segmentation_method,
+        "segmentation_warning": fallback_reason,
+        "foreground_fraction": round(float(np.mean(alpha >= 128)), 4),
+        "width": width,
+        "height": height
     }
 
-def generate_fallback_segmentation(img: np.ndarray) -> np.ndarray:
-    """Generates clean background-removed PNG using saliency and GrabCut segmentation."""
-    h, w, _ = img.shape
-    
-    # Create initial bounding box around central area where subject is located
-    margin_w, margin_h = int(w * 0.1), int(h * 0.05)
-    rect = (margin_w, margin_h, w - 2 * margin_w, h - 2 * margin_h)
-    
-    mask = np.zeros((h, w), np.uint8)
-    bgd_model = np.zeros((1, 65), np.float64)
-    fgd_model = np.zeros((1, 65), np.float64)
+
+def generate_fallback_segmentation(img: np.ndarray) -> tuple[np.ndarray, str]:
+    """Return a labeled OpenCV GrabCut or center-ellipse fallback."""
+    height, width, _ = img.shape
+    margin_w, margin_h = int(width * 0.1), int(height * 0.05)
+    rect = (margin_w, margin_h, width - 2 * margin_w, height - 2 * margin_h)
+    mask = np.zeros((height, width), np.uint8)
+    background_model = np.zeros((1, 65), np.float64)
+    foreground_model = np.zeros((1, 65), np.float64)
+    method = "opencv_grabcut_fallback"
 
     try:
-        cv2.grabCut(img, mask, rect, bgd_model, fgd_model, 3, cv2.GC_INIT_WITH_RECT)
-        mask2 = np.where((mask == 2) | (mask == 0), 0, 255).astype(np.uint8)
-        mask2 = cv2.GaussianBlur(mask2, (5, 5), 0)
-    except Exception as e:
-        print(f"[Segmentation Engine] GrabCut fallback error: {e}")
-        # Default simple center ellipse mask
-        mask2 = np.zeros((h, w), np.uint8)
-        cv2.ellipse(mask2, (w // 2, h // 2), (int(w * 0.35), int(h * 0.45)), 0, 0, 360, 255, -1)
+        cv2.grabCut(
+            img, mask, rect, background_model, foreground_model, 3, cv2.GC_INIT_WITH_RECT
+        )
+        alpha = np.where(
+            (mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD), 255, 0
+        ).astype(np.uint8)
+        alpha = cv2.GaussianBlur(alpha, (MASK_BLUR_KERNEL, MASK_BLUR_KERNEL), 0)
+    except Exception as err:
+        print(f"[Segmentation Engine] GrabCut fallback failed: {err}; using center ellipse.")
+        alpha = np.zeros((height, width), np.uint8)
+        cv2.ellipse(
+            alpha,
+            (width // 2, height // 2),
+            (int(width * 0.35), int(height * 0.45)),
+            0,
+            0,
+            360,
+            (255,),
+            -1
+        )
+        method = "center_ellipse_fallback"
 
-    b, g, r = cv2.split(img)
-    return cv2.merge((b, g, r, mask2))
+    blue, green, red = cv2.split(img)
+    return cv2.merge((blue, green, red, alpha)), method

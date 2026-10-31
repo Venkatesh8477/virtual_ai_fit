@@ -1,0 +1,11 @@
+image,category,has_person,label_version
+pose_test_1_arms_raised.jpg,arms_raised,true,visual-review-2026-10-13-v1
+pose_test_1_front_facing.jpg,no_person,false,visual-review-2026-10-13-v1
+pose_test_1_no_person.jpg,front_facing,true,visual-review-2026-10-13-v1
+pose_test_1_partially_occluded.jpg,partially_occluded,true,visual-review-2026-10-13-v1
+pose_test_1_side_pose.jpg,side_pose,true,visual-review-2026-10-13-v1
+pose_test_2_arms_raised.jpg,no_person,false,visual-review-2026-10-13-v1
+pose_test_2_front_facing.jpg,arms_raised,true,visual-review-2026-10-13-v1
+pose_test_2_no_person.jpg,front_facing,true,visual-review-2026-10-13-v1
+pose_test_2_partially_occluded.jpg,partially_occluded,true,visual-review-2026-10-13-v1
+pose_test_2_side_pose.jpg,side_pose,true,visual-review-2026-10-13-v1
