@@ -1,254 +1,216 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { tryonAPI } from '../api/client';
-import { Upload as UploadIcon, User, Shirt, Sparkles, ArrowRight, Image as ImageIcon, Cpu, CheckCircle2, RefreshCw } from 'lucide-react';
+import {
+  AlertCircle, ArrowRight, Check, Image as ImageIcon, RefreshCw, Sparkles,
+  Trash2, Upload as UploadIcon, User, Shirt,
+} from 'lucide-react';
 
-const Upload = ({ colabUrl, setTryonResult }) => {
-  const [personFile, setPersonFile] = useState(null);
-  const [personPreview, setPersonPreview] = useState('');
-  const [dressFile, setDressFile] = useState(null);
-  const [dressPreview, setDressPreview] = useState('');
-  
-  const [loading, setLoading] = useState(false);
-  const [statusMessage, setStatusMessage] = useState('');
-  const [error, setError] = useState('');
+const acceptedTypes = ['image/jpeg', 'image/png', 'image/webp'];
 
-  const navigate = useNavigate();
+const ImageCard = ({ kind, title, description, file, preview, onFile, onRemove }) => {
+  const [dragging, setDragging] = useState(false);
+  const inputRef = useRef(null);
+  const isPerson = kind === 'person';
 
-  const handlePersonChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setPersonFile(file);
-      setPersonPreview(URL.createObjectURL(file));
-    }
-  };
-
-  const handleDressChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setDressFile(file);
-      setDressPreview(URL.createObjectURL(file));
-    }
-  };
-
-  // Pre-load demo sample images for quick 1-click testing
-  const loadSample = (type, sampleUrl) => {
-    fetch(sampleUrl)
-      .then(res => res.blob())
-      .then(blob => {
-        const file = new File([blob], `${type}_sample.jpg`, { type: 'image/jpeg' });
-        if (type === 'person') {
-          setPersonFile(file);
-          setPersonPreview(sampleUrl);
-        } else {
-          setDressFile(file);
-          setDressPreview(sampleUrl);
-        }
-      });
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!personFile || !dressFile) {
-      setError('Please select both a person photo and a dress image to proceed.');
+  const receiveFile = (candidate) => {
+    if (!candidate) return;
+    if (!acceptedTypes.includes(candidate.type)) {
+      onFile(null, 'Please choose a JPG, PNG, or WebP image.');
       return;
     }
+    onFile(candidate, '');
+  };
 
+  return (
+    <section className="app-card p-4 sm:p-6">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f1e9df] text-[#722f37]">
+            {isPerson ? <User className="h-4 w-4" /> : <Shirt className="h-4 w-4" />}
+          </span>
+          <div>
+            <h2 className="text-sm font-semibold text-[#35313a]">{title}</h2>
+            <p className="mt-0.5 text-xs text-[#827a78]">{description}</p>
+          </div>
+        </div>
+        {file && <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-700"><Check className="h-3.5 w-3.5" /> Added</span>}
+      </div>
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        className="sr-only"
+        aria-label={`Choose ${title.toLowerCase()}`}
+        onChange={(event) => {
+          receiveFile(event.target.files?.[0]);
+          event.target.value = '';
+        }}
+      />
+      <div
+        onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
+        onDragOver={(event) => event.preventDefault()}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) setDragging(false);
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          setDragging(false);
+          receiveFile(event.dataTransfer.files?.[0]);
+        }}
+        className={`upload-zone relative flex min-h-[300px] flex-col items-center justify-center overflow-hidden rounded-2xl p-4 sm:min-h-[350px] ${dragging ? 'is-dragging' : ''}`}
+      >
+        {preview ? (
+          <>
+            <img src={preview} alt={isPerson ? 'Selected person photo preview' : 'Selected garment preview'} className="max-h-[300px] max-w-full rounded-xl object-contain sm:max-h-[340px]" />
+            <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between rounded-xl bg-white/95 px-3 py-2 shadow-sm">
+              <span className="max-w-[65%] truncate text-xs font-medium text-[#35313a]">{file?.name}</span>
+              <div className="flex gap-1">
+                <button type="button" className="btn-ghost min-h-8 px-2 text-xs" onClick={() => inputRef.current?.click()}>Replace</button>
+                <button type="button" className="btn-ghost min-h-8 px-2 text-xs text-rose-700" onClick={onRemove} aria-label={`Remove ${title.toLowerCase()}`}><Trash2 className="h-3.5 w-3.5" /> Remove</button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <button type="button" onClick={() => inputRef.current?.click()} className="flex w-full flex-col items-center py-12 text-center">
+            <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#f1e9df] text-[#722f37]"><UploadIcon className="h-6 w-6" /></span>
+            <span className="text-sm font-semibold text-[#35313a]">Drop an image here or <span className="text-[#722f37] underline underline-offset-2">browse files</span></span>
+            <span className="mt-2 max-w-xs text-xs leading-5 text-[#827a78]">{description}</span>
+            <span className="mt-4 rounded-full bg-[#f1e9df] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#827a78]">JPG · PNG · WebP</span>
+          </button>
+        )}
+      </div>
+      <p className="mt-3 flex items-center gap-1.5 text-[11px] leading-5 text-[#827a78]">
+        <ImageIcon className="h-3.5 w-3.5 shrink-0 text-[#c6a46a]" />
+        {isPerson ? 'A clear, well-lit full-body photo works best.' : 'One clothing item on a simple background works best.'}
+      </p>
+    </section>
+  );
+};
+
+const Upload = ({ colabUrl, setTryonResult }) => {
+  const [person, setPerson] = useState({ file: null, preview: '' });
+  const [garment, setGarment] = useState({ file: null, preview: '' });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const navigate = useNavigate();
+  const objectUrls = useRef(new Set());
+
+  useEffect(() => () => {
+    objectUrls.current.forEach((url) => URL.revokeObjectURL(url));
+    objectUrls.current.clear();
+  }, []);
+
+  const setImage = (setter, previous, file, validationError) => {
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    setError('');
+    if (previous.preview) {
+      URL.revokeObjectURL(previous.preview);
+      objectUrls.current.delete(previous.preview);
+    }
+    const preview = file ? URL.createObjectURL(file) : '';
+    if (preview) objectUrls.current.add(preview);
+    setter({ file, preview });
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (!person.file || !garment.file) {
+      setError('Add both a person photo and a garment image to continue.');
+      return;
+    }
     setError('');
     setLoading(true);
-    setStatusMessage('Running MediaPipe Pose Estimation & Body Metrics...');
-
     try {
-      setTimeout(() => setStatusMessage('Executing MediaPipe Background Segmentation...'), 1200);
-      setTimeout(() => setStatusMessage(colabUrl ? 'Running IDM-VTON Neural Try-On (Google Colab)...' : 'Synthesizing Pose-Aligned Virtual Try-On...'), 2500);
-
-      const res = await tryonAPI.generateTryOn(personFile, dressFile, colabUrl);
-      setTryonResult(res.data);
+      const response = await tryonAPI.generateTryOn(person.file, garment.file, colabUrl);
+      setTryonResult(response.data);
       navigate('/result');
     } catch (err) {
       console.error(err);
-      setError(err.response?.data?.detail || 'Try-On generation failed. Please try again.');
+      setError(err.response?.data?.detail || 'Try-on generation failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="max-w-6xl mx-auto py-8 px-4">
-      {/* Header */}
-      <div className="text-center mb-10">
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-semibold mb-3">
-          <Sparkles className="w-3.5 h-3.5" />
-          AI Neural Fitting Studio
-        </div>
-        <h1 className="text-3xl lg:text-4xl font-extrabold text-white tracking-tight">
-          Virtual Try-On & Body Analysis
-        </h1>
-        <p className="text-slate-400 text-sm max-w-xl mx-auto mt-2">
-          Upload a full-body photo and dress image. MediaPipe will extract body landmarks, estimate proportions, and render your AI try-on result.
-        </p>
+    <main className="fade-in mx-auto max-w-7xl px-4 pb-16 pt-9 sm:px-6 sm:pt-12 lg:px-8">
+      <div className="mx-auto max-w-2xl text-center">
+        <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.17em] text-[#9b725b]"><Sparkles className="h-3.5 w-3.5 text-[#c6a46a]" /> The styling studio</p>
+        <h1 className="font-editorial mt-3 text-4xl font-medium tracking-[-0.03em] text-[#241522] sm:text-5xl">Let’s find your <span className="italic text-[#722f37]">next look.</span></h1>
+        <p className="mx-auto mt-4 max-w-xl text-sm leading-6 text-[#827a78] sm:text-base">Add your photo and a garment to create a personal try-on preview. Clear, well-lit images help the studio do its best work.</p>
       </div>
 
+      <ol aria-label="Try-on steps" className="mx-auto my-8 flex max-w-3xl items-center justify-center">
+        {[
+          ['01', 'Your photo', Boolean(person.file)],
+          ['02', 'Your garment', Boolean(garment.file)],
+          ['03', 'Your look', false],
+        ].map(([number, label, complete], index) => (
+          <li key={number} className="flex flex-1 items-center last:flex-none">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+              <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold ${complete ? 'border-[#722f37] bg-[#722f37] text-white' : 'border-[#d8c8c0] bg-white text-[#827a78]'}`}>{complete ? <Check className="h-4 w-4" /> : number}</span>
+              <span className={`hidden text-xs font-medium sm:block ${complete ? 'text-[#722f37]' : 'text-[#827a78]'}`}>{label}</span>
+            </div>
+            {index < 2 && <span aria-hidden="true" className={`mx-3 h-px flex-1 sm:mx-5 ${complete ? 'bg-[#722f37]' : 'bg-[#e5ddd3]'}`} />}
+          </li>
+        ))}
+      </ol>
+
       {error && (
-        <div className="max-w-2xl mx-auto mb-6 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-sm text-center">
-          {error}
+        <div role="alert" className="mx-auto mb-5 flex max-w-3xl items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{error}</span>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          
-          {/* Box 1: Person Image */}
-          <div className="glass-panel p-6 rounded-3xl relative">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2 text-sm font-bold text-white">
-                <div className="p-2 rounded-xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30">
-                  <User className="w-4 h-4" />
-                </div>
-                1. Full-Body Person Photo
-              </div>
-              <span className="text-[11px] text-slate-400 font-medium">JPEG / PNG</span>
-            </div>
-
-            <div className="relative border-2 border-dashed border-slate-700 hover:border-indigo-500/60 rounded-2xl p-4 transition-colors min-h-[320px] flex flex-col items-center justify-center bg-slate-950/40 group">
-              {personPreview ? (
-                <div className="relative w-full h-72 flex items-center justify-center">
-                  <img
-                    src={personPreview}
-                    alt="Person preview"
-                    className="max-h-full max-w-full object-contain rounded-xl shadow-lg"
-                  />
-                  <label className="absolute bottom-3 right-3 bg-slate-900/90 text-white px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer hover:bg-indigo-600 transition-colors border border-slate-700 shadow-lg">
-                    Change
-                    <input type="file" accept="image/*" onChange={handlePersonChange} className="hidden" />
-                  </label>
-                </div>
-              ) : (
-                <label className="w-full h-full flex flex-col items-center justify-center cursor-pointer py-10">
-                  <div className="w-16 h-16 rounded-2xl bg-slate-900 flex items-center justify-center text-slate-400 group-hover:text-indigo-400 group-hover:scale-110 transition-all border border-slate-800 mb-3 shadow-inner">
-                    <UploadIcon className="w-7 h-7" />
-                  </div>
-                  <span className="text-sm font-semibold text-slate-200">Click to upload person photo</span>
-                  <span className="text-xs text-slate-500 mt-1">Full-body front facing recommended</span>
-                  <input type="file" accept="image/*" onChange={handlePersonChange} className="hidden" />
-                </label>
-              )}
-            </div>
-
-            {/* Quick Demo Preset */}
-            <div className="mt-4 flex items-center justify-between text-xs text-slate-400 pt-3 border-t border-slate-800">
-              <span>Quick Test Sample:</span>
-              <button
-                type="button"
-                onClick={() => loadSample('person', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600&auto=format&fit=crop&q=80')}
-                className="text-indigo-400 hover:text-indigo-300 font-semibold hover:underline"
-              >
-                Use Model Sample
-              </button>
-            </div>
-          </div>
-
-          {/* Box 2: Dress Image */}
-          <div className="glass-panel p-6 rounded-3xl relative">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2 text-sm font-bold text-white">
-                <div className="p-2 rounded-xl bg-purple-600/20 text-purple-400 border border-purple-500/30">
-                  <Shirt className="w-4 h-4" />
-                </div>
-                2. Dress / Garment Image
-              </div>
-              <span className="text-[11px] text-slate-400 font-medium">JPEG / PNG</span>
-            </div>
-
-            <div className="relative border-2 border-dashed border-slate-700 hover:border-purple-500/60 rounded-2xl p-4 transition-colors min-h-[320px] flex flex-col items-center justify-center bg-slate-950/40 group">
-              {dressPreview ? (
-                <div className="relative w-full h-72 flex items-center justify-center">
-                  <img
-                    src={dressPreview}
-                    alt="Dress preview"
-                    className="max-h-full max-w-full object-contain rounded-xl shadow-lg"
-                  />
-                  <label className="absolute bottom-3 right-3 bg-slate-900/90 text-white px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer hover:bg-purple-600 transition-colors border border-slate-700 shadow-lg">
-                    Change
-                    <input type="file" accept="image/*" onChange={handleDressChange} className="hidden" />
-                  </label>
-                </div>
-              ) : (
-                <label className="w-full h-full flex flex-col items-center justify-center cursor-pointer py-10">
-                  <div className="w-16 h-16 rounded-2xl bg-slate-900 flex items-center justify-center text-slate-400 group-hover:text-purple-400 group-hover:scale-110 transition-all border border-slate-800 mb-3 shadow-inner">
-                    <ImageIcon className="w-7 h-7" />
-                  </div>
-                  <span className="text-sm font-semibold text-slate-200">Click to upload dress image</span>
-                  <span className="text-xs text-slate-500 mt-1">Single clothing item on plain background</span>
-                  <input type="file" accept="image/*" onChange={handleDressChange} className="hidden" />
-                </label>
-              )}
-            </div>
-
-            {/* Quick Demo Preset */}
-            <div className="mt-4 flex items-center justify-between text-xs text-slate-400 pt-3 border-t border-slate-800">
-              <span>Quick Test Sample:</span>
-              <button
-                type="button"
-                onClick={() => loadSample('dress', 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=600&auto=format&fit=crop&q=80')}
-                className="text-purple-400 hover:text-purple-300 font-semibold hover:underline"
-              >
-                Use Dress Sample
-              </button>
-            </div>
-          </div>
-
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div className="grid gap-5 md:grid-cols-2">
+          <ImageCard
+            kind="person"
+            title="Your photo"
+            description="Choose a full-body photo with your arms slightly away from your sides."
+            file={person.file}
+            preview={person.preview}
+            onFile={(file, validationError) => setImage(setPerson, person, file, validationError)}
+            onRemove={() => setImage(setPerson, person, null, '')}
+          />
+          <ImageCard
+            kind="garment"
+            title="Your garment"
+            description="Choose a single top, dress, or clothing item to try on."
+            file={garment.file}
+            preview={garment.preview}
+            onFile={(file, validationError) => setImage(setGarment, garment, file, validationError)}
+            onRemove={() => setImage(setGarment, garment, null, '')}
+          />
         </div>
 
-        {/* Submit Action Bar */}
-        <div className="glass-panel p-6 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800 text-indigo-400">
-              <Cpu className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="text-xs font-semibold text-slate-200">AI Pipeline Engine Mode</div>
-              <div className="text-[11px] text-slate-400">
-                {colabUrl ? `IDM-VTON Connected (${colabUrl})` : 'MediaPipe + Local Neural Composite Engine'}
-              </div>
-            </div>
+        <div className="app-card flex flex-col items-start justify-between gap-4 p-4 sm:flex-row sm:items-center sm:p-5">
+          <div>
+            <p className="text-sm font-semibold text-[#35313a]">Ready when you are</p>
+            <p className="mt-1 text-xs text-[#827a78]">{colabUrl ? 'Using the configured remote endpoint.' : 'Your photos will be processed by the configured local service.'}</p>
           </div>
-
-          <button
-            type="submit"
-            disabled={loading || !personFile || !dressFile}
-            className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white font-bold text-base shadow-xl shadow-indigo-600/30 transition-all hover:scale-[1.03] disabled:opacity-40 disabled:hover:scale-100 flex items-center justify-center gap-3"
-          >
-            {loading ? (
-              <>
-                <RefreshCw className="w-5 h-5 animate-spin text-white" />
-                <span>Processing AI Try-On...</span>
-              </>
-            ) : (
-              <>
-                <span>Generate Virtual Try-On</span>
-                <ArrowRight className="w-5 h-5" />
-              </>
-            )}
+          <button type="submit" disabled={loading || !person.file || !garment.file} className="btn-primary w-full sm:w-auto">
+            {loading ? <><RefreshCw className="h-4 w-4 animate-spin" /> Creating your preview…</> : <>Create my look <ArrowRight className="h-4 w-4" /></>}
           </button>
         </div>
       </form>
 
-      {/* Loading Modal Overlay */}
       {loading && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="glass-panel max-w-sm w-full p-8 rounded-3xl text-center space-y-4 border border-indigo-500/30 shadow-2xl">
-            <div className="relative w-20 h-20 mx-auto flex items-center justify-center">
-              <div className="absolute inset-0 rounded-full border-4 border-indigo-500/20 animate-ping" />
-              <div className="absolute inset-0 rounded-full border-4 border-t-indigo-500 border-r-purple-500 border-b-pink-500 border-l-transparent animate-spin" />
-              <Sparkles className="w-8 h-8 text-indigo-400" />
-            </div>
-            <h3 className="text-lg font-bold text-white">Analyzing Pose & Fitting</h3>
-            <p className="text-xs text-indigo-300 font-medium animate-pulse">{statusMessage}</p>
+        <div role="status" aria-live="polite" className="fixed inset-0 z-50 flex items-center justify-center bg-[#241522]/45 p-4 backdrop-blur-sm">
+          <div className="app-card w-full max-w-sm p-8 text-center">
+            <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#f1e9df] text-[#722f37]"><Sparkles className="h-6 w-6" /></div>
+            <h2 className="font-editorial text-2xl text-[#241522]">Creating your look</h2>
+            <p className="mt-2 text-sm text-[#827a78]">Your photos are being prepared. This can take a little moment.</p>
+            <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-[#f1e9df]"><div className="h-full w-1/2 animate-pulse rounded-full bg-[#722f37]" /></div>
           </div>
         </div>
       )}
-    </div>
+    </main>
   );
 };
 

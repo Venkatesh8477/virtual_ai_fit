@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { Lock, Mail, User } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { UserPlus, Mail, Lock, User, AlertCircle } from 'lucide-react';
+import AuthLayout from '../components/AuthLayout';
 
 const Register = () => {
   const [name, setName] = useState('');
@@ -9,12 +10,11 @@ const Register = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-
   const { register } = useAuth();
   const navigate = useNavigate();
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSubmit = async (event) => {
+    event.preventDefault();
     setError('');
     setLoading(true);
     try {
@@ -28,88 +28,37 @@ const Register = () => {
   };
 
   return (
-    <div className="min-h-[85vh] flex items-center justify-center p-4">
-      <div className="w-full max-w-md glass-panel p-8 rounded-3xl shadow-2xl relative overflow-hidden">
-        <div className="absolute -top-20 -right-20 w-40 h-40 bg-purple-600/30 rounded-full blur-3xl pointer-events-none" />
-
-        <div className="text-center mb-8 relative z-10">
-          <div className="inline-flex p-3 rounded-2xl bg-purple-600/10 border border-purple-500/20 mb-3 text-purple-400">
-            <UserPlus className="w-6 h-6" />
+    <AuthLayout
+      title="Make yourself at home"
+      subtitle="Create an account to save and revisit the looks you love."
+      error={error}
+      footer={<>Already have an account? <Link to="/login" className="font-semibold text-[#722f37] hover:underline">Sign in</Link></>}
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label htmlFor="register-name" className="mb-1.5 block text-xs font-semibold text-[#514950]">Your name</label>
+          <div className="relative">
+            <User aria-hidden="true" className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#a59b98]" />
+            <input id="register-name" type="text" autoComplete="name" required value={name} onChange={(event) => setName(event.target.value)} placeholder="Alex Morgan" className="field-input pl-10" />
           </div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Create an Account</h1>
-          <p className="text-sm text-slate-400 mt-1">Get started with AI body analysis & virtual fitting</p>
         </div>
-
-        {error && (
-          <div className="mb-6 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{error}</span>
+        <div>
+          <label htmlFor="register-email" className="mb-1.5 block text-xs font-semibold text-[#514950]">Email address</label>
+          <div className="relative">
+            <Mail aria-hidden="true" className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#a59b98]" />
+            <input id="register-email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" className="field-input pl-10" />
           </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4 relative z-10">
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">Full Name</label>
-            <div className="relative">
-              <User className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
-              <input
-                type="text"
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Alex Morgan"
-                className="w-full bg-slate-950/70 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition-colors"
-              />
-            </div>
+        </div>
+        <div>
+          <label htmlFor="register-password" className="mb-1.5 block text-xs font-semibold text-[#514950]">Password</label>
+          <div className="relative">
+            <Lock aria-hidden="true" className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#a59b98]" />
+            <input id="register-password" type="password" autoComplete="new-password" required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Create a password" className="field-input pl-10" />
           </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">Email Address</label>
-            <div className="relative">
-              <Mail className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="alex@example.com"
-                className="w-full bg-slate-950/70 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition-colors"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">Password</label>
-            <div className="relative">
-              <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full bg-slate-950/70 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition-colors"
-              />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full mt-2 py-3 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white font-semibold text-sm shadow-lg shadow-purple-600/30 transition-all hover:scale-[1.02] disabled:opacity-50"
-          >
-            {loading ? 'Creating Account...' : 'Register'}
-          </button>
-        </form>
-
-        <p className="mt-6 text-center text-xs text-slate-400">
-          Already registered?{' '}
-          <Link to="/login" className="text-purple-400 font-semibold hover:underline">
-            Sign in here
-          </Link>
-        </p>
-      </div>
-    </div>
+        </div>
+        <button type="submit" disabled={loading} className="btn-primary mt-2 w-full">{loading ? 'Creating account…' : 'Create account'}</button>
+      </form>
+    </AuthLayout>
   );
 };
 
